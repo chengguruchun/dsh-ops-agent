@@ -42,6 +42,39 @@ import { discover, type DiscoveryReport } from './discover.js';
 import { selfReview, type ReviewResult } from './review.js';
 import { triggerReleaseWithFallback } from './degrade.js';
 import { isTransientError, withRetry } from './retry.js';
+import {
+  assertRiskAllowed,
+  evaluateRiskGate,
+  RiskGateDeniedError,
+  type RiskDecision,
+  type MutatingAction,
+} from '../runtime/riskGate.js';
+import {
+  createAgentState,
+  type AgentState,
+} from '../runtime/agentState.js';
+import {
+  createExecutionTrace,
+  appendTraceEvent,
+  appendRisk,
+  appendGap,
+  appendObservation,
+  appendAction,
+  appendVerification,
+} from '../runtime/trace.js';
+import {
+  makeObservation,
+  makeAction,
+  makeVerification,
+} from '../runtime/evidence.js';
+import {
+  computeGap,
+  actualFromVerifyText,
+  type ExpectedState,
+  type ActualState,
+  type GapResult,
+} from '../runtime/gap.js';
+import type { InMemoryEventBus } from '../runtime/eventBus.js';
 
 export type FetchFn = typeof fetch;
 
@@ -117,6 +150,26 @@ export type AgentLoopOptions = {
   reviewCommand?: string;
   allowEmptyDiff?: boolean;
 
+  /** V0.2 Risk gate: treat mutating release as approved (or set OPS_RISK_APPROVED). */
+  riskApproved?: boolean;
+  /** Skip risk gate entirely (tests only). */
+  skipRiskGate?: boolean;
+  /** Override mutating action for risk classification (tests / callers). */
+  riskAction?: MutatingAction;
+  /** Human-only break-glass (or OPS_RISK_HUMAN_UNLOCK). */
+  riskHumanUnlock?: boolean;
+
+  /** V0.3 goal stored in AgentState / checkpoint. */
+  goal?: string;
+  /** V0.4 expected state for post-verify gap. */
+  expectedState?: ExpectedState;
+  /** Inject actual state for gap tests (DI). */
+  injectedActualState?: ActualState;
+  /** V0.5 optional in-memory event bus. */
+  eventBus?: InMemoryEventBus;
+  /** V0.5 pause after this phase completes (experimental). */
+  pauseAfterPhase?: AgentLoopPhase;
+
   /** Offline inject for discover tests. */
   injectedLogsText?: string;
   injectedPods?: Record<string, unknown>;
@@ -133,6 +186,9 @@ export type AgentLoopResult = {
   checkpointPath?: string;
   resumed: boolean;
   notes: string[];
+  agentState?: AgentState;
+  riskDecision?: RiskDecision;
+  gap?: GapResult;
 };
 
 const PHASE_ORDER: AgentLoopPhase[] = [
@@ -206,6 +262,28 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   const report: AgentLoopReportSoFar = checkpoint?.report
     ? structuredClone(checkpoint.report)
     : emptyReport();
+  let agentState: AgentState = checkpoint?.agentState
+    ? structuredClone(checkpoint.agentState)
+    : createAgentState({
+        goal: options.goal,
+        domain: 'ops',
+        phase: 'init',
+      });
+  if (options.goal && !agentState.goal) agentState.goal = options.goal;
+  const trace =
+    agentState.trace ??
+    createExecutionTrace(runId, checkpoint?.startedAt);
+  agentState.trace = trace;
+  const bus = options.eventBus;
+
+  if (agentState.paused && resumeId) {
+    agentState.paused = false;
+    agentState.pauseReason = undefined;
+    appendTraceEvent(trace, { type: 'resume', summary: 'resume from paused checkpoint' });
+    notes.push('resumed from paused agentState');
+    void bus?.emit('agent.resume', { runId });
+  }
+
   const attemptCounts: Record<string, number> = {
     ...(checkpoint?.attemptCounts ?? {}),
   };
@@ -232,6 +310,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       review: report.review as ReviewResult | undefined,
       resumed,
       notes: [...notes, 'already done'],
+      agentState,
+      riskDecision: agentState.lastRisk,
+      gap: agentState.lastGap,
     };
   } else if (checkpoint.phase === 'failed') {
     phase = 'discover'; // allow full retry from start unless caller sets skip
@@ -247,6 +328,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
   const persist = async (p: AgentLoopPhase, extra?: Partial<CheckpointData>) => {
     phase = p;
+    agentState.phase = p;
     const data: CheckpointData = {
       runId,
       phase: p,
@@ -259,10 +341,42 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         workspaceDir: options.coding?.workspaceDir,
         imageRef,
       },
+      agentState,
       ...extra,
     };
     checkpointPath = await store.save(data);
+    await bus?.emit('agent.checkpoint', { runId, phase: p });
   };
+
+  const maybePause = async (completed: AgentLoopPhase): Promise<AgentLoopResult | null> => {
+    if (options.pauseAfterPhase && options.pauseAfterPhase === completed) {
+      agentState.paused = true;
+      agentState.pauseReason = `pauseAfterPhase=${completed}`;
+      appendTraceEvent(trace, {
+        type: 'pause',
+        summary: agentState.pauseReason,
+      });
+      await persist(completed);
+      await bus?.emit('agent.pause', { runId, phase: completed });
+      notes.push(`paused after phase=${completed}`);
+      return {
+        runId,
+        ok: report.ok,
+        phase: completed,
+        report,
+        discovery,
+        review,
+        checkpointPath,
+        resumed,
+        notes,
+        agentState,
+        riskDecision: agentState.lastRisk,
+        gap: agentState.lastGap,
+      };
+    }
+    return null;
+  };
+
 
   await persist(checkpoint ? phase : 'init');
 
@@ -303,7 +417,19 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         },
         degraded: discovery.notes.filter((n) => /degrad|soft-skip|fallback/i.test(n)),
       });
+      const obs = makeObservation({
+        source: 'discover',
+        summary: `suspect=${discovery.suspectService ?? '?'} hypotheses=${discovery.hypotheses.length}`,
+        data: {
+          suspectService: discovery.suspectService,
+          hypotheses: discovery.hypotheses,
+        },
+      });
+      agentState.observations.push(obs);
+      appendObservation(trace, obs);
       await persist('discover');
+      const pausedDiscover = await maybePause('discover');
+      if (pausedDiscover) return pausedDiscover;
       phase = 'diagnose';
     }
 
@@ -351,6 +477,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         }
       }
       await persist('diagnose');
+      const paused_diagnose = await maybePause('diagnose');
+      if (paused_diagnose) return paused_diagnose;
       phase = 'fix';
     }
 
@@ -410,6 +538,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         });
       }
       await persist('fix');
+      const paused_fix = await maybePause('fix');
+      if (paused_fix) return paused_fix;
       phase = 'review';
     }
 
@@ -478,15 +608,86 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
           checkpointPath,
           resumed,
           notes,
+          agentState,
+          riskDecision: agentState.lastRisk,
+          gap: agentState.lastGap,
         };
       }
+      const pausedReview = await maybePause('review');
+      if (pausedReview) return pausedReview;
       phase = 'release';
     }
 
-    // ── release (issue/MR + image + trigger) — gated by review ──
+    // ── release (issue/MR + image + trigger) — gated by review + risk ──
     if (shouldRun(phase, 'release', skip)) {
       phase = 'release';
       attemptCounts.release = (attemptCounts.release ?? 0) + 1;
+
+      // V0.2 Risk gate before mutating release path
+      if (!options.skipRiskGate) {
+        const mutatingKind =
+          options.image
+            ? 'docker_push'
+            : cfg.releaseProvider === 'helm'
+              ? 'helm_upgrade'
+              : 'release_trigger';
+        const mutatingAction: MutatingAction = options.riskAction ?? {
+          kind: mutatingKind,
+          summary: `release phase image=${Boolean(options.image)} provider=${cfg.releaseProvider}`,
+          command:
+            mutatingKind === 'docker_push'
+              ? 'docker push'
+              : mutatingKind === 'helm_upgrade'
+                ? 'helm upgrade'
+                : 'release trigger',
+        };
+        const riskDecision = evaluateRiskGate(mutatingAction, {
+          approved: options.riskApproved,
+          humanUnlock: options.riskHumanUnlock,
+        });
+        agentState.riskDecisions.push(riskDecision);
+        agentState.lastRisk = riskDecision;
+        appendRisk(trace, riskDecision);
+        const riskActionRecord = makeAction({
+          kind: String(mutatingAction.kind ?? mutatingKind),
+          summary: riskDecision.reason,
+          riskLevel: riskDecision.level,
+          data: riskDecision,
+        });
+        agentState.actions.push(riskActionRecord);
+        appendAction(trace, riskActionRecord);
+        try {
+          assertRiskAllowed(riskDecision, { reviewPassed: review?.ok !== false });
+        } catch (err) {
+          const denied =
+            err instanceof RiskGateDeniedError ? err.decision : riskDecision;
+          pushPhase(report, {
+            name: 'release',
+            ok: false,
+            error: errMsg(err),
+            outputs: { riskDecision: denied },
+          });
+          report.ok = false;
+          notes.push(`risk gate hard-stop: ${errMsg(err)}`);
+          await persist('failed', { lastError: errMsg(err) });
+          await bus?.emit('agent.risk_denied', { runId, decision: denied });
+          return {
+            runId,
+            ok: false,
+            phase: 'failed',
+            report,
+            discovery,
+            review,
+            checkpointPath,
+            resumed,
+            notes,
+            agentState,
+            riskDecision: denied,
+            gap: agentState.lastGap,
+          };
+        }
+      }
+
       const outputs: Record<string, unknown> = {};
       const degraded: string[] = [];
 
@@ -564,7 +765,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
             review,
             checkpointPath,
             resumed,
-            notes,
+      notes,
+      agentState,
+      riskDecision: agentState.lastRisk,
+      gap: agentState.lastGap,
           };
         }
       }
@@ -646,11 +850,16 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
             review,
             checkpointPath,
             resumed,
-            notes,
+      notes,
+      agentState,
+      riskDecision: agentState.lastRisk,
+      gap: agentState.lastGap,
           };
         }
       }
       await persist('release');
+      const pausedRelease = await maybePause('release');
+      if (pausedRelease) return pausedRelease;
       phase = 'verify';
     }
 
@@ -685,17 +894,67 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
               ),
             retryOpts,
           );
+          const expected: ExpectedState = {
+            deployment: options.verify!.deployment,
+            namespace: options.verify!.namespace ?? discovery?.namespace,
+            imageRef: imageRef,
+            rolloutComplete: true,
+            ...(options.expectedState ?? {}),
+          };
+          const actual: ActualState =
+            options.injectedActualState ??
+            actualFromVerifyText(result.rollout.text, {
+              deployment: options.verify!.deployment,
+              namespace: options.verify!.namespace ?? discovery?.namespace,
+              imageRef,
+            });
+          const gap = await computeGap(expected, { actual });
+          agentState.lastGap = gap;
+          appendGap(trace, gap);
+          const ver = makeVerification({
+            resultIds: [],
+            ok: gap.ok,
+            summary: gap.summary,
+            gapId: gap.id,
+            data: { nextActionHint: gap.nextActionHint },
+          });
+          agentState.verifications.push(ver);
+          appendVerification(trace, ver);
+          const verifyOk = gap.ok;
           pushPhase(report, {
             name: 'verify',
-            ok: true,
+            ok: verifyOk,
             requestSummary: result.rollout.requestSummary,
             outputs: {
               rollout: result.rollout.text.slice(0, 1000),
               logs: result.logs
                 ? { provider: result.logs.provider, textLength: result.logs.text.length }
                 : undefined,
+              gap,
             },
+            error: verifyOk ? undefined : gap.summary,
           });
+          if (!verifyOk) {
+            report.ok = false;
+            notes.push(`gap after verify: ${gap.summary}`);
+            if (gap.nextActionHint) notes.push(`nextActionHint: ${gap.nextActionHint}`);
+            await persist('failed', { lastError: gap.summary });
+            await bus?.emit('agent.gap', { runId, gap });
+            return {
+              runId,
+              ok: false,
+              phase: 'failed',
+              report,
+              discovery,
+              review,
+              checkpointPath,
+              resumed,
+              notes,
+              agentState,
+              riskDecision: agentState.lastRisk,
+              gap,
+            };
+          }
         } catch (err) {
           pushPhase(report, {
             name: 'verify',
@@ -714,10 +973,15 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
             checkpointPath,
             resumed,
             notes,
+            agentState,
+            riskDecision: agentState.lastRisk,
+            gap: agentState.lastGap,
           };
         }
       }
       await persist('verify');
+      const pausedVerify = await maybePause('verify');
+      if (pausedVerify) return pausedVerify;
     }
 
     report.ok = report.phases.every((p) => p.ok || p.skipped);
@@ -732,6 +996,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       checkpointPath,
       resumed,
       notes,
+      agentState,
+      riskDecision: agentState.lastRisk,
+      gap: agentState.lastGap,
     };
   } catch (err) {
     report.ok = false;
@@ -747,6 +1014,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       checkpointPath,
       resumed,
       notes,
+      agentState,
+      riskDecision: agentState.lastRisk,
+      gap: agentState.lastGap,
     };
   }
 }

@@ -13,3 +13,7 @@ npm test -w @dsh-ops-agent/ops-pipeline
 ```
 
 详见仓库根目录 `README.md` 与 `docs/closed-loop.md`。`ops-sim` 已移除。
+
+## Runtime V0.2–V0.5
+
+See root [docs/runtime.md](../../docs/runtime.md): Risk Gate, Evidence/Trace/AgentState, Expected vs Actual Gap, EventBus/DomainRegistry (V0.5 experimental).

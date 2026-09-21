@@ -6,6 +6,7 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import type { CircuitBreakerSnapshot } from './circuitBreaker.js';
+import type { AgentState } from '../runtime/agentState.js';
 
 export type AgentLoopPhase =
   | 'init'
@@ -30,6 +31,8 @@ export type CheckpointData = {
   /** Optional opaque bag for resume (workspace paths, imageRef, etc.). */
   context?: Record<string, unknown>;
   lastError?: string;
+  /** V0.3+ rich agent state (goal, observations, risk, pause…). */
+  agentState?: AgentState;
 };
 
 export type AgentLoopReportSoFar = {
