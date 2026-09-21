@@ -1,0 +1,35 @@
+{
+  "name": "dsh-seam-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Coding-agent lab for DeepSeek Harness seam gaps (pre-compaction DSH-ARCH-004) in the Pi→DSH / pi2dsh architecture",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @dsh-seam-lab/compaction-guard",
+    "test": "npm run test -w @dsh-seam-lab/compaction-guard",
+    "typecheck": "npm run typecheck -w @dsh-seam-lab/compaction-guard"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PLACEHOLDER/dsh-seam-lab.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PLACEHOLDER/dsh-seam-lab/issues"
+  },
+  "homepage": "https://github.com/PLACEHOLDER/dsh-seam-lab#readme",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "pi2dsh",
+    "cordis",
+    "coding-agent",
+    "compaction",
+    "agent-harness"
+  ]
+}
