@@ -1,8 +1,8 @@
 {
-  "name": "dsh-seam-lab",
+  "name": "dsh-ops-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Coding-agent lab for DeepSeek Harness seam gaps (pre-compaction DSH-ARCH-004) in the Pi→DSH / pi2dsh architecture",
+  "description": "Oncall/ops agent lab on DeepSeek Harness + pi2dsh — pre-compaction guards (DSH-ARCH-004) and incident context preservation",
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
@@ -11,25 +11,26 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @dsh-seam-lab/compaction-guard",
-    "test": "npm run test -w @dsh-seam-lab/compaction-guard",
-    "typecheck": "npm run typecheck -w @dsh-seam-lab/compaction-guard"
+    "build": "npm run build -w @dsh-ops-agent/compaction-guard",
+    "test": "npm run test -w @dsh-ops-agent/compaction-guard",
+    "typecheck": "npm run typecheck -w @dsh-ops-agent/compaction-guard"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/PLACEHOLDER/dsh-seam-lab.git"
+    "url": "https://github.com/chengguruchun/dsh-ops-agent.git"
   },
   "bugs": {
-    "url": "https://github.com/PLACEHOLDER/dsh-seam-lab/issues"
+    "url": "https://github.com/chengguruchun/dsh-ops-agent/issues"
   },
-  "homepage": "https://github.com/PLACEHOLDER/dsh-seam-lab#readme",
+  "homepage": "https://github.com/chengguruchun/dsh-ops-agent#readme",
   "keywords": [
     "deepseek-harness",
     "dsh",
     "pi2dsh",
-    "cordis",
-    "coding-agent",
+    "ops-agent",
+    "oncall",
+    "sre",
     "compaction",
-    "agent-harness"
+    "cordis"
   ]
 }

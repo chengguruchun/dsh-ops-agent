@@ -14,3 +14,11 @@ export {
   vetoWhileEditing,
   type CodeAgentHint,
 } from './codeAgent.js';
+
+export {
+  OPS_AGENT_HINTS,
+  defaultOpsAgentGuards,
+  opsAgentPreservePlan,
+  vetoWhileInvestigating,
+  type OpsAgentHint,
+} from './opsAgent.js';

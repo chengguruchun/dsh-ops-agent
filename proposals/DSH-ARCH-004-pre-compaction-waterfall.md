@@ -1,7 +1,7 @@
 # DSH-ARCH-004：压缩执行前的取消 / 替换 waterfall
 
 状态：草案（lab）  
-场景定位：**Coding Agent**（改仓库 / 跑测试 / 出 diff），不是通用闲聊  
+场景定位：**Ops / Oncall Agent（亦可服务 Coding Agent）**（改仓库 / 跑测试 / 出 diff），不是通用闲聊  
 关联：`pi2dsh` 架构结论中的 `DSH-ARCH-004`  
 本仓实现：`packages/dsh-compaction-guard`
 

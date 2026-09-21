@@ -1,5 +1,8 @@
 # evidence
 
-在 stock DSH 上复现「只能 observe、不能改压缩决定」之后，把日志、对照表、截图放这里。
+在 stock DeepSeek Harness + pi2dsh 上录制：
 
-命名建议：`YYYY-MM-DD-<scenario>-before|after.*`
+- 无 guard：压缩后丢失 `failing-service` / `recent-logs`
+- 有 sidecar / 未来原生 seam：hints 仍在
+
+请脱敏后再提交。

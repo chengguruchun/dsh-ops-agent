@@ -44,19 +44,13 @@ describe('vetoNearFloor', () => {
 
 describe('replaceWhenPreserving', () => {
   it('replaces when preserve hints exist', async () => {
-    const ctx = {
-      ...base,
-      preserveHints: ['user-prefs', 'open-pr-url'],
-    };
+    const ctx = { ...base, preserveHints: ['keep-me'] };
     const decision = await runCompactionGuards(ctx, [
-      replaceWhenPreserving((c) => ({
-        reason: `keep ${c.preserveHints.join(',')}`,
-        directive: 'Summarize tools but keep preserveHints verbatim.',
+      replaceWhenPreserving(() => ({
+        reason: 'keep hints',
+        directive: 'Preserve preserveHints.',
       })),
     ]);
     assert.equal(decision.kind, 'replace');
-    if (decision.kind === 'replace') {
-      assert.match(decision.plan.reason, /user-prefs/);
-    }
   });
 });

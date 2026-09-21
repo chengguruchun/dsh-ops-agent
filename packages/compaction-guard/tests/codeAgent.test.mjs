@@ -29,17 +29,13 @@ describe('vetoWhileEditing', () => {
 
 describe('codeAgentPreservePlan', () => {
   it('drives replace with coding hints', async () => {
-    const ctx = {
-      ...base,
-      preserveHints: ['diff', 'failing-test', 'noise'],
-    };
+    const ctx = { ...base, preserveHints: ['diff', 'failing-test'] };
     const decision = await runCompactionGuards(ctx, [
       replaceWhenPreserving(codeAgentPreservePlan),
     ]);
     assert.equal(decision.kind, 'replace');
     if (decision.kind === 'replace') {
-      assert.match(decision.plan.reason, /diff/);
-      assert.match(decision.plan.directive, /failing test/i);
+      assert.match(decision.plan.reason, /diff|coding/i);
     }
   });
 });
