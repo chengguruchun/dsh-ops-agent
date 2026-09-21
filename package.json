@@ -2,7 +2,7 @@
   "name": "dsh-ops-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Oncall/ops agent lab on DeepSeek Harness + pi2dsh — pre-compaction guards (DSH-ARCH-004) and incident context preservation",
+  "description": "Oncall/ops agent lab on DeepSeek Harness + pi2dsh \u2014 pre-compaction guards (DSH-ARCH-004) and incident context preservation",
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
@@ -11,9 +11,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @dsh-ops-agent/compaction-guard",
-    "test": "npm run test -w @dsh-ops-agent/compaction-guard",
-    "typecheck": "npm run typecheck -w @dsh-ops-agent/compaction-guard"
+    "build": "npm run build -w @dsh-ops-agent/compaction-guard && npm run build -w @dsh-ops-agent/ops-pipeline && npm run build -w @dsh-ops-agent/code-review && npm run build -w @dsh-ops-agent/pi2dsh-plugin",
+    "test": "npm run test -w @dsh-ops-agent/compaction-guard && npm run test -w @dsh-ops-agent/ops-pipeline && npm run test -w @dsh-ops-agent/code-review && npm run test -w @dsh-ops-agent/pi2dsh-plugin",
+    "typecheck": "npm run typecheck -w @dsh-ops-agent/compaction-guard && npm run typecheck -w @dsh-ops-agent/ops-pipeline && npm run typecheck -w @dsh-ops-agent/code-review && npm run typecheck -w @dsh-ops-agent/pi2dsh-plugin"
   },
   "repository": {
     "type": "git",

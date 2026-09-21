@@ -6,3 +6,5 @@ coverage/
 .env
 .env.*
 !.env.example
+.ops-checkpoints/
+APPLY_ON_MAC.md

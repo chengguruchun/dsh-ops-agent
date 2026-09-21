@@ -1,0 +1,61 @@
+{
+  "name": "@dsh-ops-agent/pi2dsh-plugin",
+  "version": "0.1.0",
+  "description": "Pi extension that registers OPS_TOOL_CATALOG + CR_TOOL_CATALOG tools for DSH via pi2dsh",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./extension": {
+      "types": "./dist/extension.d.ts",
+      "import": "./dist/extension.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/extension.js"
+    ]
+  },
+  "keywords": [
+    "pi-package",
+    "pi2dsh",
+    "dsh",
+    "ops-agent",
+    "oncall"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@dsh-ops-agent/compaction-guard": "0.1.0",
+    "@dsh-ops-agent/ops-pipeline": "0.1.0",
+    "typebox": "^1.0.4",
+    "@dsh-ops-agent/code-review": "0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
